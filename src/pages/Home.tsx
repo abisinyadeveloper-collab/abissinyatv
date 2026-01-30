@@ -16,6 +16,12 @@ const Home = () => {
   useEffect(() => {
     const fetchVideos = async () => {
       setLoading(true);
+      
+      // Add timeout for poor connections
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout')), 5000);
+      });
+      
       try {
         let q;
         if (activeCategory === 'All') {
@@ -28,29 +34,36 @@ const Home = () => {
             limit(20)
           );
         }
-        const snapshot = await getDocs(q);
-        const videosData = snapshot.docs.map(doc => {
-          const data = doc.data() as Record<string, any>;
-          return {
-            video_id: doc.id,
-            title: data.title || '',
-            description: data.description || '',
-            thumbnail_url: data.thumbnail_url || '',
-            video_url: data.video_url || '',
-            source_type: data.source_type || 'link',
-            category: data.category || 'music',
-            views: data.views || 0,
-            likes: data.likes || 0,
-            uploader_id: data.uploader_id || '',
-            uploader_name: data.uploader_name || '',
-            uploader_avatar: data.uploader_avatar || '',
-            created_at: data.created_at || new Date()
-          } as Video;
-        });
-        setVideos(videosData);
+        
+        const snapshot = await Promise.race([getDocs(q), timeoutPromise]);
+        
+        if (snapshot.empty) {
+          // No videos in DB, use demo data
+          setVideos(getDemoVideos());
+        } else {
+          const videosData = snapshot.docs.map(doc => {
+            const data = doc.data() as Record<string, any>;
+            return {
+              video_id: doc.id,
+              title: data.title || '',
+              description: data.description || '',
+              thumbnail_url: data.thumbnail_url || '',
+              video_url: data.video_url || '',
+              source_type: data.source_type || 'link',
+              category: data.category || 'music',
+              views: data.views || 0,
+              likes: data.likes || 0,
+              uploader_id: data.uploader_id || '',
+              uploader_name: data.uploader_name || '',
+              uploader_avatar: data.uploader_avatar || '',
+              created_at: data.created_at || new Date()
+            } as Video;
+          });
+          setVideos(videosData.length > 0 ? videosData : getDemoVideos());
+        }
       } catch (error) {
         console.error('Error fetching videos:', error);
-        // Set demo data for now
+        // Set demo data on error or timeout
         setVideos(getDemoVideos());
       } finally {
         setLoading(false);

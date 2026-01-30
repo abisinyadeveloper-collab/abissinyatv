@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { Settings, LogOut, ChevronRight, User, Clock, Heart, Download, Moon, Bell as BellIcon } from 'lucide-react';
+import { Settings, LogOut, ChevronRight, User, Clock, Heart, Download, Moon, Bell as BellIcon, Library, Bookmark } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSavedVideos } from '@/hooks/useSavedVideos';
+import VideoCard from '@/components/VideoCard';
 import { cn } from '@/lib/utils';
 
 const menuItems = [
@@ -17,7 +19,9 @@ const settingsItems = [
 
 const Profile = () => {
   const { user, userProfile, isGuest, setShowAuthModal, setAuthAction, signOut } = useAuth();
+  const { savedVideos } = useSavedVideos();
   const [signingOut, setSigningOut] = useState(false);
+  const [showSavedVideos, setShowSavedVideos] = useState(false);
 
   const handleSignOut = async () => {
     setSigningOut(true);
@@ -45,6 +49,41 @@ const Profile = () => {
           >
             Sign In
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (showSavedVideos) {
+    return (
+      <div className="min-h-screen pb-20">
+        {/* Header */}
+        <header className="sticky top-0 z-40 glass-nav px-4 py-4">
+          <div className="max-w-2xl mx-auto flex items-center gap-4">
+            <button 
+              onClick={() => setShowSavedVideos(false)}
+              className="p-2 -ml-2 hover:bg-secondary rounded-full"
+            >
+              <ChevronRight className="w-5 h-5 rotate-180" />
+            </button>
+            <h1 className="text-xl font-bold">Saved Videos</h1>
+          </div>
+        </header>
+
+        <div className="max-w-2xl mx-auto px-4 py-4">
+          {savedVideos.length > 0 ? (
+            <div className="space-y-2">
+              {savedVideos.map((video) => (
+                <VideoCard key={video.video_id} video={video} variant="horizontal" />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <Bookmark className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <p className="text-muted-foreground">No saved videos yet</p>
+              <p className="text-sm text-muted-foreground mt-1">Videos you save will appear here</p>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -84,7 +123,7 @@ const Profile = () => {
         <div className="grid grid-cols-3 gap-3">
           {[
             { label: 'Videos', value: '0' },
-            { label: 'Followers', value: userProfile?.followers_list?.length || '0' },
+            { label: 'Saved', value: savedVideos.length.toString() },
             { label: 'Following', value: '0' },
           ].map((stat) => (
             <div key={stat.label} className="bg-card rounded-xl p-4 text-center">
@@ -99,6 +138,20 @@ const Profile = () => {
           <h3 className="px-4 py-3 text-sm font-medium text-muted-foreground border-b border-border">
             Your Library
           </h3>
+          
+          {/* Saved Videos - Special */}
+          <button
+            onClick={() => setShowSavedVideos(true)}
+            className="w-full flex items-center gap-4 px-4 py-3.5 hover:bg-secondary/50 transition-colors border-b border-border"
+          >
+            <Library className="w-5 h-5 text-primary" />
+            <span className="flex-1 text-left">Saved Videos</span>
+            {savedVideos.length > 0 && (
+              <span className="text-sm text-muted-foreground">{savedVideos.length}</span>
+            )}
+            <ChevronRight className="w-5 h-5 text-muted-foreground" />
+          </button>
+          
           {menuItems.map((item, index) => {
             const Icon = item.icon;
             return (

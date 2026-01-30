@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { 
   ThumbsUp, ThumbsDown, Share2, Download, Bookmark, 
-  MoreHorizontal, Send, UserPlus, Check 
+  MoreHorizontal, Send, UserPlus, Check, Library, Loader2
 } from 'lucide-react';
 import { doc, getDoc, updateDoc, increment, collection, query, where, orderBy, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -11,22 +11,27 @@ import VideoPlayer from '@/components/VideoPlayer';
 import VideoCard from '@/components/VideoCard';
 import { Skeleton } from '@/components/Skeleton';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSavedVideos } from '@/hooks/useSavedVideos';
 import { formatViews, formatTimeAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 const Watch = () => {
   const { videoId } = useParams<{ videoId: string }>();
   const { user, userProfile, isGuest, setShowAuthModal, setAuthAction } = useAuth();
+  const { saveVideo, removeVideo, isVideoSaved } = useSavedVideos();
   
   const [video, setVideo] = useState<Video | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [relatedVideos, setRelatedVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
   const [liked, setLiked] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [following, setFollowing] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [showFullDescription, setShowFullDescription] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const isSaved = video ? isVideoSaved(video.video_id) : false;
 
   useEffect(() => {
     const fetchVideo = async () => {
@@ -93,23 +98,26 @@ const Watch = () => {
     }
     
     // Optimistic update
-    setLiked(!liked);
+    const wasLiked = liked;
+    setLiked(!wasLiked);
     if (video) {
-      setVideo({ ...video, likes: video.likes + (liked ? -1 : 1) });
+      setVideo({ ...video, likes: video.likes + (wasLiked ? -1 : 1) });
     }
     
     // Update in database
     if (videoId) {
       try {
         await updateDoc(doc(db, 'videos', videoId), {
-          likes: increment(liked ? -1 : 1)
+          likes: increment(wasLiked ? -1 : 1)
         });
+        toast.success(wasLiked ? 'Like removed' : 'Added to liked videos');
       } catch (error) {
         // Revert on error
-        setLiked(liked);
+        setLiked(wasLiked);
         if (video) {
           setVideo({ ...video, likes: video.likes });
         }
+        toast.error('Failed to update like');
       }
     }
   };
@@ -127,7 +135,8 @@ const Watch = () => {
       }
     } else {
       // Fallback - copy to clipboard
-      navigator.clipboard.writeText(window.location.href);
+      await navigator.clipboard.writeText(window.location.href);
+      toast.success('Link copied to clipboard!');
     }
   };
 
@@ -137,7 +146,54 @@ const Watch = () => {
       setShowAuthModal(true);
       return;
     }
-    setSaved(!saved);
+    
+    if (!video) return;
+    
+    if (isSaved) {
+      removeVideo(video.video_id);
+      toast.success('Removed from library');
+    } else {
+      saveVideo(video);
+      toast.success('Saved to library');
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!video) return;
+    
+    if (video.source_type === 'embed') {
+      // For embeds, just save to library
+      if (!isGuest) {
+        saveVideo(video);
+        toast.success('Saved to library (embeds cannot be downloaded)');
+      } else {
+        setAuthAction('save videos');
+        setShowAuthModal(true);
+      }
+      return;
+    }
+
+    // For direct links, trigger download
+    setDownloading(true);
+    try {
+      const response = await fetch(video.video_url);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${video.title.replace(/[^a-z0-9]/gi, '_')}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Download started!');
+    } catch (error) {
+      // Fallback: open in new tab
+      window.open(video.video_url, '_blank');
+      toast.info('Opening video in new tab for download');
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const handleFollow = () => {
@@ -147,6 +203,7 @@ const Watch = () => {
       return;
     }
     setFollowing(!following);
+    toast.success(following ? 'Unfollowed' : 'Following!');
   };
 
   const handleComment = async (e: React.FormEvent) => {
@@ -169,8 +226,10 @@ const Watch = () => {
     };
 
     // Optimistic update
-    setComments([{ id: Date.now().toString(), ...comment }, ...comments]);
+    const tempId = Date.now().toString();
+    setComments([{ id: tempId, ...comment }, ...comments]);
     setNewComment('');
+    toast.success('Comment posted!');
 
     // Save to database
     try {
@@ -180,6 +239,9 @@ const Watch = () => {
       });
     } catch (error) {
       console.error('Error posting comment:', error);
+      // Remove optimistic comment on error
+      setComments(comments.filter(c => c.id !== tempId));
+      toast.error('Failed to post comment');
     }
   };
 
@@ -256,20 +318,32 @@ const Watch = () => {
                 <span className="text-sm font-medium">Share</span>
               </button>
               
-              <button className="flex items-center gap-2 px-4 py-2 bg-secondary rounded-full hover:bg-accent transition-colors">
-                <Download className="w-5 h-5" />
-                <span className="text-sm font-medium">Download</span>
+              <button 
+                onClick={handleDownload}
+                disabled={downloading}
+                className="flex items-center gap-2 px-4 py-2 bg-secondary rounded-full hover:bg-accent transition-colors disabled:opacity-50"
+              >
+                {downloading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : video.source_type === 'embed' ? (
+                  <Library className="w-5 h-5" />
+                ) : (
+                  <Download className="w-5 h-5" />
+                )}
+                <span className="text-sm font-medium">
+                  {video.source_type === 'embed' ? 'Save' : 'Download'}
+                </span>
               </button>
               
               <button 
                 onClick={handleSave}
                 className={cn(
                   "flex items-center gap-2 px-4 py-2 rounded-full transition-colors",
-                  saved ? "bg-primary/20 text-primary" : "bg-secondary hover:bg-accent"
+                  isSaved ? "bg-primary/20 text-primary" : "bg-secondary hover:bg-accent"
                 )}
               >
-                <Bookmark className={cn("w-5 h-5", saved && "fill-current")} />
-                <span className="text-sm font-medium">Save</span>
+                <Bookmark className={cn("w-5 h-5", isSaved && "fill-current")} />
+                <span className="text-sm font-medium">{isSaved ? 'Saved' : 'Library'}</span>
               </button>
             </div>
 
