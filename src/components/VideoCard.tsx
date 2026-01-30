@@ -2,6 +2,7 @@ import { Play, Eye } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Video } from '@/types';
 import { formatViews, formatTimeAgo } from '@/lib/format';
+import LazyImage from './LazyImage';
 
 interface VideoCardProps {
   video: Video;
@@ -16,10 +17,10 @@ const VideoCard = ({ video, variant = 'default' }: VideoCardProps) => {
         className="flex gap-3 p-2 rounded-xl hover:bg-secondary/50 transition-colors"
       >
         <div className="relative w-40 aspect-video rounded-lg overflow-hidden flex-shrink-0 bg-muted">
-          <img 
+          <LazyImage 
             src={video.thumbnail_url} 
             alt={video.title}
-            className="w-full h-full object-cover"
+            className="w-full h-full"
           />
           <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 hover:opacity-100 transition-opacity">
             <Play className="w-8 h-8 text-white fill-white" />
@@ -48,10 +49,10 @@ const VideoCard = ({ video, variant = 'default' }: VideoCardProps) => {
         className="video-card group"
       >
         <div className="relative aspect-video bg-muted">
-          <img 
+          <LazyImage 
             src={video.thumbnail_url} 
             alt={video.title}
-            className="w-full h-full object-cover"
+            className="w-full h-full"
           />
           <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
             <div className="w-12 h-12 rounded-full bg-primary/90 flex items-center justify-center">
@@ -73,10 +74,10 @@ const VideoCard = ({ video, variant = 'default' }: VideoCardProps) => {
       className="video-card group block"
     >
       <div className="relative aspect-video bg-muted">
-        <img 
+        <LazyImage 
           src={video.thumbnail_url} 
           alt={video.title}
-          className="w-full h-full object-cover"
+          className="w-full h-full"
         />
         <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
           <div className="w-14 h-14 rounded-full bg-primary/90 flex items-center justify-center transform group-hover:scale-110 transition-transform">
@@ -89,10 +90,10 @@ const VideoCard = ({ video, variant = 'default' }: VideoCardProps) => {
       </div>
       <div className="p-3">
         <div className="flex gap-3">
-          <img 
+          <LazyImage 
             src={video.uploader_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${video.uploader_id}`}
-            alt={video.uploader_name}
-            className="w-9 h-9 rounded-full bg-muted flex-shrink-0"
+            alt={video.uploader_name || 'Uploader'}
+            className="w-9 h-9 rounded-full flex-shrink-0"
           />
           <div className="flex-1 min-w-0">
             <h3 className="font-medium text-sm line-clamp-2 leading-tight">{video.title}</h3>

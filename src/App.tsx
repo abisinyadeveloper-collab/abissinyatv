@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import BottomNav from "@/components/BottomNav";
 import AuthModal from "@/components/AuthModal";
+import OfflineBanner from "@/components/OfflineBanner";
 import Home from "./pages/Home";
 import Explore from "./pages/Explore";
 import Upload from "./pages/Upload";
@@ -23,7 +24,8 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <div className="min-h-screen bg-background">
+          <div className="min-h-screen bg-background overscroll-none">
+            <OfflineBanner />
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/explore" element={<Explore />} />
