@@ -4,8 +4,7 @@ import {
   ThumbsUp, ThumbsDown, Share2, Download, Bookmark, 
   MoreHorizontal, Send, UserPlus, Check, Library, Loader2
 } from 'lucide-react';
-import { doc, getDoc, updateDoc, increment, collection, query, where, orderBy, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { supabase } from '@/integrations/supabase/client';
 import { Video, Comment } from '@/types';
 import VideoPlayer from '@/components/VideoPlayer';
 import VideoCard from '@/components/VideoCard';
@@ -39,44 +38,70 @@ const Watch = () => {
       
       setLoading(true);
       try {
-        const videoDoc = await getDoc(doc(db, 'videos', videoId));
-        if (videoDoc.exists()) {
-          const videoData = { video_id: videoDoc.id, ...videoDoc.data() } as Video;
-          setVideo(videoData);
-          
-          // Increment view count
-          await updateDoc(doc(db, 'videos', videoId), {
-            views: increment(1)
-          });
+        // Fetch video from Supabase
+        const { data: videoData, error } = await supabase
+          .from('videos')
+          .select('*')
+          .eq('id', videoId)
+          .single();
 
-          // Fetch comments
-          const commentsQuery = query(
-            collection(db, 'comments'),
-            where('video_id', '==', videoId),
-            orderBy('timestamp', 'desc')
-          );
-          const commentsSnapshot = await getDocs(commentsQuery);
-          setComments(commentsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Comment[]);
-
-          // Fetch related videos
-          const relatedQuery = query(
-            collection(db, 'videos'),
-            where('category', '==', videoData.category),
-            orderBy('views', 'desc')
-          );
-          const relatedSnapshot = await getDocs(relatedQuery);
-          setRelatedVideos(
-            relatedSnapshot.docs
-              .filter(doc => doc.id !== videoId)
-              .slice(0, 5)
-              .map(doc => ({ video_id: doc.id, ...doc.data() })) as Video[]
-          );
-        } else {
-          // Demo video
+        if (error || !videoData) {
+          // Demo video fallback
           setVideo(getDemoVideo(videoId));
           setComments(getDemoComments());
           setRelatedVideos(getDemoRelatedVideos());
+        } else {
+          const mappedVideo: Video = {
+            video_id: videoData.id,
+            title: videoData.title,
+            description: '',
+            thumbnail_url: videoData.thumbnail_url || '',
+            video_url: videoData.url || videoData.embed_code || '',
+            source_type: videoData.type as 'link' | 'embed',
+            category: videoData.category as 'music' | 'sport' | 'live' | 'movies',
+            views: videoData.views || 0,
+            likes: videoData.likes || 0,
+            uploader_id: videoData.user_id,
+            created_at: new Date(videoData.created_at)
+          };
+          setVideo(mappedVideo);
+          
+          // Increment view count
+          await supabase
+            .from('videos')
+            .update({ views: (videoData.views || 0) + 1 })
+            .eq('id', videoId);
+
+          // Fetch related videos
+          const { data: related } = await supabase
+            .from('videos')
+            .select('*')
+            .eq('category', videoData.category)
+            .neq('id', videoId)
+            .order('views', { ascending: false })
+            .limit(5);
+
+          if (related) {
+            setRelatedVideos(related.map(v => ({
+              video_id: v.id,
+              title: v.title,
+              description: '',
+              thumbnail_url: v.thumbnail_url || '',
+              video_url: v.url || v.embed_code || '',
+              source_type: v.type as 'link' | 'embed',
+              category: v.category as 'music' | 'sport' | 'live' | 'movies',
+              views: v.views || 0,
+              likes: v.likes || 0,
+              uploader_id: v.user_id,
+              created_at: new Date(v.created_at)
+            })));
+          } else {
+            setRelatedVideos(getDemoRelatedVideos());
+          }
         }
+        
+        // Comments are not implemented in this version
+        setComments(getDemoComments());
       } catch (error) {
         console.error('Error fetching video:', error);
         setVideo(getDemoVideo(videoId!));
@@ -105,11 +130,12 @@ const Watch = () => {
     }
     
     // Update in database
-    if (videoId) {
+    if (videoId && video) {
       try {
-        await updateDoc(doc(db, 'videos', videoId), {
-          likes: increment(wasLiked ? -1 : 1)
-        });
+        await supabase
+          .from('videos')
+          .update({ likes: video.likes + (wasLiked ? -1 : 1) })
+          .eq('id', videoId);
         toast.success(wasLiked ? 'Like removed' : 'Added to liked videos');
       } catch (error) {
         // Revert on error
@@ -134,7 +160,6 @@ const Watch = () => {
         console.log('Share cancelled');
       }
     } else {
-      // Fallback - copy to clipboard
       await navigator.clipboard.writeText(window.location.href);
       toast.success('Link copied to clipboard!');
     }
@@ -162,7 +187,6 @@ const Watch = () => {
     if (!video) return;
     
     if (video.source_type === 'embed') {
-      // For embeds, just save to library
       if (!isGuest) {
         saveVideo(video);
         toast.success('Saved to library (embeds cannot be downloaded)');
@@ -173,7 +197,6 @@ const Watch = () => {
       return;
     }
 
-    // For direct links, trigger download
     setDownloading(true);
     try {
       const response = await fetch(video.video_url);
@@ -188,7 +211,6 @@ const Watch = () => {
       window.URL.revokeObjectURL(url);
       toast.success('Download started!');
     } catch (error) {
-      // Fallback: open in new tab
       window.open(video.video_url, '_blank');
       toast.info('Opening video in new tab for download');
     } finally {
@@ -216,33 +238,19 @@ const Watch = () => {
       return;
     }
 
-    const comment: Omit<Comment, 'id'> = {
+    const comment: Comment = {
+      id: Date.now().toString(),
       text: newComment,
-      user_id: user!.uid,
+      user_id: user!.id,
       video_id: videoId!,
       timestamp: new Date(),
       user_avatar: userProfile?.avatar_url || '',
       username: userProfile?.username || 'User'
     };
 
-    // Optimistic update
-    const tempId = Date.now().toString();
-    setComments([{ id: tempId, ...comment }, ...comments]);
+    setComments([comment, ...comments]);
     setNewComment('');
     toast.success('Comment posted!');
-
-    // Save to database
-    try {
-      await addDoc(collection(db, 'comments'), {
-        ...comment,
-        timestamp: serverTimestamp()
-      });
-    } catch (error) {
-      console.error('Error posting comment:', error);
-      // Remove optimistic comment on error
-      setComments(comments.filter(c => c.id !== tempId));
-      toast.error('Failed to post comment');
-    }
   };
 
   if (loading) {
@@ -485,8 +493,8 @@ const Watch = () => {
 const getDemoVideo = (id: string): Video => ({
   video_id: id,
   title: 'Amazing Live Concert Performance 2024 - Full Show',
-  description: 'Experience the incredible energy of this live concert performance featuring top artists from around the world. This full show includes stunning visuals, amazing sound quality, and unforgettable moments that will keep you entertained from start to finish.',
-  thumbnail_url: 'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=1280',
+  description: 'Experience the best live concert of 2024 with incredible performances from top artists. This show features stunning visuals, amazing sound quality, and unforgettable moments that will leave you speechless.',
+  thumbnail_url: 'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800',
   video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
   source_type: 'link',
   category: 'music',
@@ -501,75 +509,63 @@ const getDemoVideo = (id: string): Video => ({
 const getDemoComments = (): Comment[] => [
   {
     id: '1',
-    text: 'This is absolutely amazing! Best performance I\'ve ever seen 🔥',
-    user_id: 'user2',
-    video_id: '1',
+    text: 'This is absolutely amazing! Best concert I have ever seen! 🔥',
+    user_id: 'user1',
+    video_id: 'demo',
     timestamp: new Date(Date.now() - 3600000),
-    user_avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=john',
-    username: 'John'
+    user_avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=user1',
+    username: 'MusicFan123'
   },
   {
     id: '2',
-    text: 'The sound quality is incredible. Great production!',
-    user_id: 'user3',
-    video_id: '1',
+    text: 'The sound quality is incredible. Thanks for sharing!',
+    user_id: 'user2',
+    video_id: 'demo',
     timestamp: new Date(Date.now() - 7200000),
-    user_avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sarah',
-    username: 'Sarah'
+    user_avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=user2',
+    username: 'ConcertLover'
   },
   {
     id: '3',
-    text: 'Been waiting for this! Thanks for uploading 👏',
-    user_id: 'user4',
-    video_id: '1',
+    text: 'Been waiting for this upload! 🙌',
+    user_id: 'user3',
+    video_id: 'demo',
     timestamp: new Date(Date.now() - 86400000),
-    user_avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=mike',
-    username: 'Mike'
+    user_avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=user3',
+    username: 'LiveShowFan'
   }
 ];
 
 const getDemoRelatedVideos = (): Video[] => [
   {
-    video_id: '2',
-    title: 'Premier League Highlights - Best Goals',
+    video_id: 'demo-2',
+    title: 'Premier League Highlights',
+    description: 'Top 10 goals from this week',
     thumbnail_url: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800',
-    video_url: '',
+    video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
     source_type: 'link',
     category: 'sport',
     views: 890000,
     likes: 32000,
     uploader_id: 'user2',
     uploader_name: 'Sports Daily',
-    description: '',
+    uploader_avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sports',
     created_at: new Date(Date.now() - 172800000)
   },
   {
-    video_id: '3',
-    title: 'Trending Music Video - New Release',
+    video_id: 'demo-3',
+    title: 'New Music Video Release',
+    description: 'Official music video',
     thumbnail_url: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800',
-    video_url: '',
+    video_url: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
     source_type: 'embed',
     category: 'music',
     views: 5600000,
     likes: 234000,
     uploader_id: 'user3',
     uploader_name: 'VEVO',
-    description: '',
+    uploader_avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=vevo',
     created_at: new Date(Date.now() - 259200000)
-  },
-  {
-    video_id: '4',
-    title: 'Acoustic Session - Unplugged Live',
-    thumbnail_url: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800',
-    video_url: '',
-    source_type: 'link',
-    category: 'music',
-    views: 780000,
-    likes: 45000,
-    uploader_id: 'user6',
-    uploader_name: 'Acoustic Vibes',
-    description: '',
-    created_at: new Date(Date.now() - 432000000)
   }
 ];
 

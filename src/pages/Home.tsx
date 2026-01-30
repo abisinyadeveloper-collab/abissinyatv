@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Search, Bell, Cast, X } from 'lucide-react';
-import { collection, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { supabase } from '@/integrations/supabase/client';
 import { Video } from '@/types';
 import VideoCard from '@/components/VideoCard';
 import { VideoCardSkeleton } from '@/components/Skeleton';
@@ -16,58 +15,89 @@ const Home = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
 
-  // Real-time Firestore listener
+  // Fetch videos from Supabase
   useEffect(() => {
-    setLoading(true);
-    
-    let q;
-    if (activeCategory === 'All') {
-      q = query(collection(db, 'videos'), orderBy('created_at', 'desc'), limit(50));
-    } else {
-      q = query(
-        collection(db, 'videos'),
-        where('category', '==', activeCategory.toLowerCase()),
-        orderBy('created_at', 'desc'),
-        limit(50)
-      );
-    }
-
-    // Use onSnapshot for real-time updates
-    const unsubscribe = onSnapshot(q, 
-      (snapshot) => {
-        if (snapshot.empty) {
-          setVideos(getDemoVideos());
-        } else {
-          const videosData = snapshot.docs.map(doc => {
-            const data = doc.data() as Record<string, any>;
-            return {
-              video_id: doc.id,
-              title: data.title || '',
-              description: data.description || '',
-              thumbnail_url: data.thumbnail_url || '',
-              video_url: data.video_url || '',
-              source_type: data.source_type || 'link',
-              category: data.category || 'music',
-              views: data.views || 0,
-              likes: data.likes || 0,
-              uploader_id: data.uploader_id || '',
-              uploader_name: data.uploader_name || '',
-              uploader_avatar: data.uploader_avatar || '',
-              created_at: data.created_at?.toDate?.() || new Date()
-            } as Video;
-          });
-          setVideos(videosData.length > 0 ? videosData : getDemoVideos());
-        }
-        setLoading(false);
-      },
-      (error) => {
-        console.error('Firestore error:', error);
-        setVideos(getDemoVideos());
-        setLoading(false);
+    const fetchVideos = async () => {
+      setLoading(true);
+      
+      let query = supabase
+        .from('videos')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      
+      if (activeCategory !== 'All') {
+        const categoryMap: Record<string, string> = {
+          'Music': 'music',
+          'Sports': 'sport',
+          'Live': 'live',
+          'Movies': 'movies'
+        };
+        query = query.eq('category', categoryMap[activeCategory]);
       }
-    );
 
-    return () => unsubscribe();
+      const { data, error } = await query;
+      
+      if (error) {
+        console.error('Error fetching videos:', error);
+        setVideos(getDemoVideos());
+      } else if (data && data.length > 0) {
+        const mappedVideos: Video[] = data.map(v => ({
+          video_id: v.id,
+          title: v.title,
+          description: '',
+          thumbnail_url: v.thumbnail_url || '',
+          video_url: v.url || v.embed_code || '',
+          source_type: v.type as 'link' | 'embed',
+          category: v.category as 'music' | 'sport' | 'live' | 'movies',
+          views: v.views || 0,
+          likes: v.likes || 0,
+          uploader_id: v.user_id,
+          created_at: new Date(v.created_at)
+        }));
+        setVideos(mappedVideos);
+      } else {
+        setVideos(getDemoVideos());
+      }
+      
+      setLoading(false);
+    };
+
+    fetchVideos();
+
+    // Set up real-time subscription for new videos
+    const channel = supabase
+      .channel('videos-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'videos'
+        },
+        (payload) => {
+          const newVideo = payload.new;
+          const mappedVideo: Video = {
+            video_id: newVideo.id,
+            title: newVideo.title,
+            description: '',
+            thumbnail_url: newVideo.thumbnail_url || '',
+            video_url: newVideo.url || newVideo.embed_code || '',
+            source_type: newVideo.type as 'link' | 'embed',
+            category: newVideo.category as 'music' | 'sport' | 'live' | 'movies',
+            views: newVideo.views || 0,
+            likes: newVideo.likes || 0,
+            uploader_id: newVideo.user_id,
+            created_at: new Date(newVideo.created_at)
+          };
+          setVideos(prev => [mappedVideo, ...prev]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [activeCategory]);
 
   // Filter videos based on search query
@@ -77,8 +107,7 @@ const Home = () => {
     const query = searchQuery.toLowerCase();
     return videos.filter(video => 
       video.title.toLowerCase().includes(query) ||
-      video.description?.toLowerCase().includes(query) ||
-      video.uploader_name?.toLowerCase().includes(query)
+      video.description?.toLowerCase().includes(query)
     );
   }, [videos, searchQuery]);
 

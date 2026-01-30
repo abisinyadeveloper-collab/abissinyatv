@@ -1,15 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Search, TrendingUp, Music, Trophy, Radio, Film } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { supabase } from '@/integrations/supabase/client';
 import { Video } from '@/types';
 import VideoCard from '@/components/VideoCard';
-import { VideoCardSkeleton, CategoryCardSkeleton } from '@/components/Skeleton';
+import { VideoCardSkeleton } from '@/components/Skeleton';
 
 const categories = [
   { id: 'music', name: 'Music', icon: Music, color: 'from-pink-500 to-rose-500', image: 'https://images.unsplash.com/photo-1514320291840-2e0a9bf2a9ae?w=800' },
-  { id: 'sport', name: 'Sports', icon: Trophy, color: 'from-green-500 to-emerald-500', image: 'https://images.unsplash.com/photo-1461896836934- voices-f8b7c9e3?w=800' },
+  { id: 'sport', name: 'Sports', icon: Trophy, color: 'from-green-500 to-emerald-500', image: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800' },
   { id: 'live', name: 'Live', icon: Radio, color: 'from-red-500 to-orange-500', image: 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=800' },
   { id: 'movies', name: 'Movies', icon: Film, color: 'from-purple-500 to-indigo-500', image: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=800' },
 ];
@@ -23,50 +22,35 @@ const Explore = () => {
     const fetchTrending = async () => {
       setLoading(true);
       try {
-        const q = query(
-          collection(db, 'videos'),
-          orderBy('views', 'desc'),
-          limit(10)
-        );
-        const snapshot = await getDocs(q);
-        const videosData = snapshot.docs.map(doc => {
-          const data = doc.data() as Record<string, any>;
-          return {
-            video_id: doc.id,
-            title: data.title || '',
-            description: data.description || '',
-            thumbnail_url: data.thumbnail_url || '',
-            video_url: data.video_url || '',
-            source_type: data.source_type || 'link',
-            category: data.category || 'music',
-            views: data.views || 0,
-            likes: data.likes || 0,
-            uploader_id: data.uploader_id || '',
-            uploader_name: data.uploader_name || '',
-            uploader_avatar: data.uploader_avatar || '',
-            created_at: data.created_at || new Date()
-          } as Video;
-        });
-        setTrendingVideos(videosData);
+        const { data, error } = await supabase
+          .from('videos')
+          .select('*')
+          .order('views', { ascending: false })
+          .limit(10);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          const mappedVideos: Video[] = data.map(v => ({
+            video_id: v.id,
+            title: v.title,
+            description: '',
+            thumbnail_url: v.thumbnail_url || '',
+            video_url: v.url || v.embed_code || '',
+            source_type: v.type as 'link' | 'embed',
+            category: v.category as 'music' | 'sport' | 'live' | 'movies',
+            views: v.views || 0,
+            likes: v.likes || 0,
+            uploader_id: v.user_id,
+            created_at: new Date(v.created_at)
+          }));
+          setTrendingVideos(mappedVideos);
+        } else {
+          setTrendingVideos(getDemoTrending());
+        }
       } catch (error) {
         console.error('Error fetching trending:', error);
-        // Demo data
-        setTrendingVideos([
-          {
-            video_id: '1',
-            title: 'Viral Music Video - 100M Views',
-            description: '',
-            thumbnail_url: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800',
-            video_url: '',
-            source_type: 'link',
-            category: 'music',
-            views: 100000000,
-            likes: 5000000,
-            uploader_id: 'user1',
-            uploader_name: 'Top Artist',
-            created_at: new Date()
-          }
-        ]);
+        setTrendingVideos(getDemoTrending());
       } finally {
         setLoading(false);
       }
@@ -74,6 +58,10 @@ const Explore = () => {
 
     fetchTrending();
   }, []);
+
+  const filteredVideos = trendingVideos.filter(video =>
+    video.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <div className="min-h-screen pb-20">
@@ -104,7 +92,7 @@ const Explore = () => {
               return (
                 <Link
                   key={category.id}
-                  to={`/explore/${category.id}`}
+                  to={`/?category=${category.id}`}
                   className="relative aspect-[4/3] rounded-xl overflow-hidden group"
                 >
                   <img 
@@ -134,10 +122,14 @@ const Explore = () => {
               Array.from({ length: 6 }).map((_, i) => (
                 <VideoCardSkeleton key={i} />
               ))
-            ) : (
-              trendingVideos.map((video) => (
+            ) : filteredVideos.length > 0 ? (
+              filteredVideos.map((video) => (
                 <VideoCard key={video.video_id} video={video} />
               ))
+            ) : (
+              <div className="col-span-full text-center py-8">
+                <p className="text-muted-foreground">No videos found</p>
+              </div>
             )}
           </div>
         </section>
@@ -145,5 +137,38 @@ const Explore = () => {
     </div>
   );
 };
+
+const getDemoTrending = (): Video[] => [
+  {
+    video_id: 'trend-1',
+    title: 'Viral Music Video - 100M Views',
+    description: 'The most watched video this week',
+    thumbnail_url: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800',
+    video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+    source_type: 'link',
+    category: 'music',
+    views: 100000000,
+    likes: 5000000,
+    uploader_id: 'user1',
+    uploader_name: 'Top Artist',
+    uploader_avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=artist',
+    created_at: new Date()
+  },
+  {
+    video_id: 'trend-2',
+    title: 'Championship Finals Highlights',
+    description: 'Best moments from the finals',
+    thumbnail_url: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800',
+    video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+    source_type: 'link',
+    category: 'sport',
+    views: 25000000,
+    likes: 1200000,
+    uploader_id: 'user2',
+    uploader_name: 'Sports Channel',
+    uploader_avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sports',
+    created_at: new Date(Date.now() - 86400000)
+  }
+];
 
 export default Explore;

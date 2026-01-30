@@ -1,7 +1,6 @@
 import { useState, useRef } from 'react';
 import { Upload as UploadIcon, Link as LinkIcon, Code, Loader2 } from 'lucide-react';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -89,20 +88,19 @@ const Upload = () => {
       const category = detectCategory(title);
       const finalVideoUrl = processVideoUrl(videoSource, videoType);
 
-      await addDoc(collection(db, 'videos'), {
+      const { error } = await supabase.from('videos').insert({
+        user_id: user?.id,
         title: title.trim(),
-        description: '',
+        url: videoType === 'link' ? finalVideoUrl : null,
+        embed_code: videoType === 'embed' ? finalVideoUrl : null,
         thumbnail_url: thumbnailUrl,
-        video_url: finalVideoUrl,
-        source_type: videoType,
+        type: videoType,
         category,
         views: 0,
-        likes: 0,
-        uploader_id: user?.uid || 'anonymous',
-        uploader_name: userProfile?.username || 'Anonymous',
-        uploader_avatar: userProfile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid}`,
-        created_at: serverTimestamp()
+        likes: 0
       });
+
+      if (error) throw error;
 
       // Clear timeout and redirect immediately if upload finished fast
       if (timeoutRef.current) {
