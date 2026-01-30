@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
-import { Search, Bell, Cast } from 'lucide-react';
-import { collection, query, orderBy, limit, getDocs, where } from 'firebase/firestore';
+import { useState, useEffect, useMemo } from 'react';
+import { Search, Bell, Cast, X } from 'lucide-react';
+import { collection, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Video } from '@/types';
 import VideoCard from '@/components/VideoCard';
 import { VideoCardSkeleton } from '@/components/Skeleton';
+import { cn } from '@/lib/utils';
 
 const categories = ['All', 'Music', 'Sports', 'Live', 'Movies'];
 
@@ -12,33 +13,29 @@ const Home = () => {
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
 
+  // Real-time Firestore listener
   useEffect(() => {
-    const fetchVideos = async () => {
-      setLoading(true);
-      
-      // Add timeout for poor connections
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Timeout')), 5000);
-      });
-      
-      try {
-        let q;
-        if (activeCategory === 'All') {
-          q = query(collection(db, 'videos'), orderBy('created_at', 'desc'), limit(20));
-        } else {
-          q = query(
-            collection(db, 'videos'),
-            where('category', '==', activeCategory.toLowerCase()),
-            orderBy('created_at', 'desc'),
-            limit(20)
-          );
-        }
-        
-        const snapshot = await Promise.race([getDocs(q), timeoutPromise]);
-        
+    setLoading(true);
+    
+    let q;
+    if (activeCategory === 'All') {
+      q = query(collection(db, 'videos'), orderBy('created_at', 'desc'), limit(50));
+    } else {
+      q = query(
+        collection(db, 'videos'),
+        where('category', '==', activeCategory.toLowerCase()),
+        orderBy('created_at', 'desc'),
+        limit(50)
+      );
+    }
+
+    // Use onSnapshot for real-time updates
+    const unsubscribe = onSnapshot(q, 
+      (snapshot) => {
         if (snapshot.empty) {
-          // No videos in DB, use demo data
           setVideos(getDemoVideos());
         } else {
           const videosData = snapshot.docs.map(doc => {
@@ -56,40 +53,82 @@ const Home = () => {
               uploader_id: data.uploader_id || '',
               uploader_name: data.uploader_name || '',
               uploader_avatar: data.uploader_avatar || '',
-              created_at: data.created_at || new Date()
+              created_at: data.created_at?.toDate?.() || new Date()
             } as Video;
           });
           setVideos(videosData.length > 0 ? videosData : getDemoVideos());
         }
-      } catch (error) {
-        console.error('Error fetching videos:', error);
-        // Set demo data on error or timeout
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Firestore error:', error);
         setVideos(getDemoVideos());
-      } finally {
         setLoading(false);
       }
-    };
+    );
 
-    fetchVideos();
+    return () => unsubscribe();
   }, [activeCategory]);
+
+  // Filter videos based on search query
+  const filteredVideos = useMemo(() => {
+    if (!searchQuery.trim()) return videos;
+    
+    const query = searchQuery.toLowerCase();
+    return videos.filter(video => 
+      video.title.toLowerCase().includes(query) ||
+      video.description?.toLowerCase().includes(query) ||
+      video.uploader_name?.toLowerCase().includes(query)
+    );
+  }, [videos, searchQuery]);
 
   return (
     <div className="min-h-screen pb-20">
       {/* Header */}
       <header className="sticky top-0 z-40 glass-nav px-4 py-3">
         <div className="flex items-center justify-between max-w-6xl mx-auto">
-          <h1 className="text-xl font-bold text-primary">ABISINYA</h1>
-          <div className="flex items-center gap-2">
-            <button className="p-2 hover:bg-secondary rounded-full transition-colors">
-              <Cast className="w-5 h-5" />
-            </button>
-            <button className="p-2 hover:bg-secondary rounded-full transition-colors">
-              <Bell className="w-5 h-5" />
-            </button>
-            <button className="p-2 hover:bg-secondary rounded-full transition-colors">
-              <Search className="w-5 h-5" />
-            </button>
-          </div>
+          {showSearch ? (
+            <div className="flex-1 flex items-center gap-2">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search videos..."
+                  className="w-full bg-secondary pl-10 pr-4 py-2 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  autoFocus
+                />
+              </div>
+              <button 
+                onClick={() => {
+                  setShowSearch(false);
+                  setSearchQuery('');
+                }}
+                className="p-2 hover:bg-secondary rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          ) : (
+            <>
+              <h1 className="text-xl font-bold text-primary">ABISINYA</h1>
+              <div className="flex items-center gap-2">
+                <button className="p-2 hover:bg-secondary rounded-full transition-colors">
+                  <Cast className="w-5 h-5" />
+                </button>
+                <button className="p-2 hover:bg-secondary rounded-full transition-colors">
+                  <Bell className="w-5 h-5" />
+                </button>
+                <button 
+                  onClick={() => setShowSearch(true)}
+                  className="p-2 hover:bg-secondary rounded-full transition-colors"
+                >
+                  <Search className="w-5 h-5" />
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </header>
 
@@ -100,17 +139,28 @@ const Home = () => {
             <button
               key={category}
               onClick={() => setActiveCategory(category)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+              className={cn(
+                "px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all",
                 activeCategory === category
-                  ? 'bg-foreground text-background'
-                  : 'bg-secondary text-foreground hover:bg-accent'
-              }`}
+                  ? "bg-foreground text-background"
+                  : "bg-secondary text-foreground hover:bg-accent"
+              )}
             >
               {category}
             </button>
           ))}
         </div>
       </div>
+
+      {/* Search indicator */}
+      {searchQuery && (
+        <div className="px-4 py-2 max-w-6xl mx-auto">
+          <p className="text-sm text-muted-foreground">
+            Showing results for "<span className="text-foreground font-medium">{searchQuery}</span>"
+            {filteredVideos.length > 0 && ` (${filteredVideos.length} found)`}
+          </p>
+        </div>
+      )}
 
       {/* Video feed */}
       <div className="px-4 py-4 max-w-6xl mx-auto">
@@ -119,13 +169,22 @@ const Home = () => {
             Array.from({ length: 8 }).map((_, i) => (
               <VideoCardSkeleton key={i} />
             ))
-          ) : videos.length > 0 ? (
-            videos.map((video) => (
+          ) : filteredVideos.length > 0 ? (
+            filteredVideos.map((video) => (
               <VideoCard key={video.video_id} video={video} />
             ))
           ) : (
-            <div className="col-span-full text-center py-12">
-              <p className="text-muted-foreground">No videos found</p>
+            <div className="col-span-full flex flex-col items-center justify-center py-16">
+              <div className="w-16 h-16 bg-secondary rounded-full flex items-center justify-center mb-4">
+                <Search className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <h3 className="text-lg font-semibold mb-2">No videos found</h3>
+              <p className="text-muted-foreground text-center max-w-sm">
+                {searchQuery 
+                  ? `No videos match "${searchQuery}". Try a different search term.`
+                  : 'No videos available in this category yet.'
+                }
+              </p>
             </div>
           )}
         </div>
@@ -137,7 +196,7 @@ const Home = () => {
 // Demo data for testing
 const getDemoVideos = (): Video[] => [
   {
-    video_id: '1',
+    video_id: 'demo-1',
     title: 'Amazing Live Concert Performance 2024',
     description: 'An incredible live performance from the biggest artists',
     thumbnail_url: 'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800',
@@ -152,7 +211,7 @@ const getDemoVideos = (): Video[] => [
     created_at: new Date(Date.now() - 86400000)
   },
   {
-    video_id: '2',
+    video_id: 'demo-2',
     title: 'Premier League Highlights - Best Goals',
     description: 'Top 10 goals from this week',
     thumbnail_url: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800',
@@ -167,7 +226,7 @@ const getDemoVideos = (): Video[] => [
     created_at: new Date(Date.now() - 172800000)
   },
   {
-    video_id: '3',
+    video_id: 'demo-3',
     title: 'Trending Music Video - New Release',
     description: 'Official music video for the latest hit',
     thumbnail_url: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800',
@@ -182,7 +241,7 @@ const getDemoVideos = (): Video[] => [
     created_at: new Date(Date.now() - 259200000)
   },
   {
-    video_id: '4',
+    video_id: 'demo-4',
     title: 'Live Football Match - Championship Final',
     description: 'Watch the championship final live',
     thumbnail_url: 'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=800',
@@ -197,7 +256,7 @@ const getDemoVideos = (): Video[] => [
     created_at: new Date()
   },
   {
-    video_id: '5',
+    video_id: 'demo-5',
     title: 'Blockbuster Movie Trailer 2024',
     description: 'Official trailer for the most anticipated movie',
     thumbnail_url: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=800',
@@ -212,7 +271,7 @@ const getDemoVideos = (): Video[] => [
     created_at: new Date(Date.now() - 345600000)
   },
   {
-    video_id: '6',
+    video_id: 'demo-6',
     title: 'Acoustic Session - Unplugged Live',
     description: 'Beautiful acoustic performance',
     thumbnail_url: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800',

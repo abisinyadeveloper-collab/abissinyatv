@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Upload as UploadIcon, Link as LinkIcon, Loader2 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Upload as UploadIcon, Link as LinkIcon, Code, Loader2 } from 'lucide-react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -7,45 +7,33 @@ import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
+type VideoType = 'link' | 'embed';
+
 const Upload = () => {
   const { user, userProfile, isGuest, setShowAuthModal, setAuthAction } = useAuth();
   const navigate = useNavigate();
   
   const [title, setTitle] = useState('');
-  const [videoUrl, setVideoUrl] = useState('');
+  const [videoSource, setVideoSource] = useState('');
+  const [videoType, setVideoType] = useState<VideoType>('link');
   const [loading, setLoading] = useState(false);
-
-  // Auto-detect source type from URL
-  const detectSourceType = (url: string): 'link' | 'embed' => {
-    const embedPatterns = [
-      'youtube.com/embed',
-      'youtube.com/watch',
-      'youtu.be',
-      'odysee.com',
-      'rumble.com/embed',
-      'vimeo.com',
-      'dailymotion.com',
-      'facebook.com/video',
-      'tiktok.com'
-    ];
-    return embedPatterns.some(pattern => url.toLowerCase().includes(pattern)) ? 'embed' : 'link';
-  };
+  const [errors, setErrors] = useState<{ title?: boolean; videoSource?: boolean }>({});
+  
+  const timeoutRef = useRef<NodeJS.Timeout>();
 
   // Auto-generate thumbnail from video URL
   const generateThumbnail = (url: string): string => {
-    // YouTube thumbnail extraction
     const youtubeMatch = url.match(/(?:youtube\.com\/(?:embed\/|watch\?v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
     if (youtubeMatch) {
       return `https://img.youtube.com/vi/${youtubeMatch[1]}/maxresdefault.jpg`;
     }
-    // Default placeholder
     return 'https://images.unsplash.com/photo-1611162616305-c69b3fa7fbe0?w=800';
   };
 
   // Auto-detect category from title
   const detectCategory = (title: string): string => {
     const lowerTitle = title.toLowerCase();
-    if (lowerTitle.includes('football') || lowerTitle.includes('sport') || lowerTitle.includes('goal') || lowerTitle.includes('match')) {
+    if (lowerTitle.includes('football') || lowerTitle.includes('sport') || lowerTitle.includes('goal')) {
       return 'sport';
     }
     if (lowerTitle.includes('live') || lowerTitle.includes('stream')) {
@@ -54,11 +42,32 @@ const Upload = () => {
     if (lowerTitle.includes('movie') || lowerTitle.includes('film') || lowerTitle.includes('trailer')) {
       return 'movies';
     }
-    return 'music'; // Default
+    return 'music';
+  };
+
+  // Convert YouTube watch URLs to embed URLs
+  const processVideoUrl = (url: string, type: VideoType): string => {
+    if (type === 'embed') {
+      const youtubeMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+      if (youtubeMatch) {
+        return `https://www.youtube.com/embed/${youtubeMatch[1]}`;
+      }
+    }
+    return url;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate fields
+    const newErrors: { title?: boolean; videoSource?: boolean } = {};
+    if (!title.trim()) newErrors.title = true;
+    if (!videoSource.trim()) newErrors.videoSource = true;
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
     
     if (isGuest) {
       setAuthAction('upload videos');
@@ -66,50 +75,47 @@ const Upload = () => {
       return;
     }
 
-    if (!title.trim() || !videoUrl.trim()) {
-      toast.error('Please enter a title and video URL');
-      return;
-    }
-
     setLoading(true);
+    setErrors({});
+
+    // Set a max loading time of 0.5 seconds before redirect
+    timeoutRef.current = setTimeout(() => {
+      navigate('/');
+      toast.success('Video uploaded!');
+    }, 500);
 
     try {
-      const sourceType = detectSourceType(videoUrl);
-      const thumbnailUrl = generateThumbnail(videoUrl);
+      const thumbnailUrl = generateThumbnail(videoSource);
       const category = detectCategory(title);
+      const finalVideoUrl = processVideoUrl(videoSource, videoType);
 
-      // Convert embed URLs to proper format
-      let finalVideoUrl = videoUrl;
-      if (sourceType === 'embed') {
-        // Convert YouTube watch URLs to embed URLs
-        const youtubeMatch = videoUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-        if (youtubeMatch) {
-          finalVideoUrl = `https://www.youtube.com/embed/${youtubeMatch[1]}`;
-        }
-      }
-
-      const docRef = await addDoc(collection(db, 'videos'), {
+      await addDoc(collection(db, 'videos'), {
         title: title.trim(),
         description: '',
         thumbnail_url: thumbnailUrl,
         video_url: finalVideoUrl,
-        source_type: sourceType,
+        source_type: videoType,
         category,
         views: 0,
         likes: 0,
-        uploader_id: user?.uid,
+        uploader_id: user?.uid || 'anonymous',
         uploader_name: userProfile?.username || 'Anonymous',
         uploader_avatar: userProfile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid}`,
         created_at: serverTimestamp()
       });
 
+      // Clear timeout and redirect immediately if upload finished fast
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      navigate('/');
       toast.success('Video uploaded successfully!');
-      // Redirect to the new video
-      navigate(`/watch/${docRef.id}`);
     } catch (err: any) {
       console.error('Upload error:', err);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
       toast.error(err.message || 'Failed to upload video');
-    } finally {
       setLoading(false);
     }
   };
@@ -120,69 +126,110 @@ const Upload = () => {
       <header className="sticky top-0 z-40 glass-nav px-4 py-4">
         <div className="max-w-2xl mx-auto">
           <h1 className="text-xl font-bold">Quick Upload</h1>
-          <p className="text-sm text-muted-foreground mt-1">Just paste a link and go!</p>
+          <p className="text-sm text-muted-foreground mt-1">Add a video link or embed code</p>
         </div>
       </header>
 
       <div className="px-4 py-8 max-w-2xl mx-auto">
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Video Type Toggle */}
+          <div className="flex gap-2 p-1 bg-secondary rounded-xl">
+            <button
+              type="button"
+              onClick={() => setVideoType('link')}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-medium transition-all",
+                videoType === 'link' 
+                  ? "bg-primary text-primary-foreground" 
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <LinkIcon className="w-4 h-4" />
+              Direct Link
+            </button>
+            <button
+              type="button"
+              onClick={() => setVideoType('embed')}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-medium transition-all",
+                videoType === 'embed' 
+                  ? "bg-primary text-primary-foreground" 
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Code className="w-4 h-4" />
+              Embed Code
+            </button>
+          </div>
+
           {/* Title */}
           <div>
             <label className="block text-sm font-medium mb-2">Video Title *</label>
             <input
               type="text"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                if (errors.title) setErrors(prev => ({ ...prev, title: false }));
+              }}
               placeholder="Enter video title"
-              className="w-full bg-secondary px-4 py-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 text-lg"
-              required
+              className={cn(
+                "w-full bg-secondary px-4 py-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 text-lg transition-all",
+                errors.title && "ring-2 ring-destructive"
+              )}
               autoFocus
             />
+            {errors.title && (
+              <p className="text-destructive text-sm mt-1">Title is required</p>
+            )}
           </div>
 
-          {/* Video URL */}
+          {/* Video Source */}
           <div>
-            <label className="block text-sm font-medium mb-2">Video Link *</label>
+            <label className="block text-sm font-medium mb-2">
+              {videoType === 'link' ? 'Video URL *' : 'Embed Code / URL *'}
+            </label>
             <div className="relative">
-              <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              {videoType === 'link' ? (
+                <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              ) : (
+                <Code className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              )}
               <input
-                type="url"
-                value={videoUrl}
-                onChange={(e) => setVideoUrl(e.target.value)}
-                placeholder="Paste YouTube, MP4, or any video link"
-                className="w-full bg-secondary pl-12 pr-4 py-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50"
-                required
+                type="text"
+                value={videoSource}
+                onChange={(e) => {
+                  setVideoSource(e.target.value);
+                  if (errors.videoSource) setErrors(prev => ({ ...prev, videoSource: false }));
+                }}
+                placeholder={videoType === 'link' 
+                  ? "https://example.com/video.mp4" 
+                  : "https://youtube.com/watch?v=... or embed URL"
+                }
+                className={cn(
+                  "w-full bg-secondary pl-12 pr-4 py-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all",
+                  errors.videoSource && "ring-2 ring-destructive"
+                )}
               />
             </div>
+            {errors.videoSource && (
+              <p className="text-destructive text-sm mt-1">Video source is required</p>
+            )}
             <p className="text-xs text-muted-foreground mt-2">
-              Supports YouTube, MP4, M3U8 (HLS), Odysee, and more
+              {videoType === 'link' 
+                ? 'Supports MP4, M3U8 (HLS), and direct video URLs'
+                : 'Supports YouTube, Odysee, Vimeo, and other embed URLs'
+              }
             </p>
           </div>
-
-          {/* Auto-detection preview */}
-          {videoUrl && (
-            <div className="bg-card/50 rounded-xl p-4 border border-border animate-in fade-in">
-              <p className="text-sm font-medium mb-2">Auto-detected:</p>
-              <div className="flex flex-wrap gap-2">
-                <span className="px-3 py-1 bg-secondary rounded-full text-xs">
-                  Type: {detectSourceType(videoUrl).toUpperCase()}
-                </span>
-                {title && (
-                  <span className="px-3 py-1 bg-secondary rounded-full text-xs">
-                    Category: {detectCategory(title)}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* Submit */}
           <button
             type="submit"
-            disabled={loading || !title.trim() || !videoUrl.trim()}
+            disabled={loading}
             className={cn(
-              "w-full btn-primary py-4 flex items-center justify-center gap-2 text-lg font-semibold",
-              (loading || !title.trim() || !videoUrl.trim()) && "opacity-50 cursor-not-allowed"
+              "w-full btn-primary py-4 flex items-center justify-center gap-2 text-lg font-semibold transition-all",
+              loading && "opacity-70"
             )}
           >
             {loading ? (
@@ -193,7 +240,7 @@ const Upload = () => {
             ) : (
               <>
                 <UploadIcon className="w-5 h-5" />
-                Upload & Watch
+                Upload Video
               </>
             )}
           </button>
@@ -205,15 +252,15 @@ const Upload = () => {
           <ul className="text-xs text-muted-foreground space-y-2">
             <li className="flex items-start gap-2">
               <span className="text-primary">•</span>
-              <span>Just paste a YouTube or video link - we'll auto-detect everything else!</span>
+              <span>Use "Direct Link" for MP4, M3U8, or any direct video file URLs.</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-primary">•</span>
-              <span>For MP4 files, paste the direct link to the video file.</span>
+              <span>Use "Embed Code" for YouTube, Odysee, or Vimeo videos.</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-primary">•</span>
-              <span>Include keywords like "football" or "live" in the title for better categorization.</span>
+              <span>Include keywords like "football" or "live" for automatic categorization.</span>
             </li>
           </ul>
         </div>
