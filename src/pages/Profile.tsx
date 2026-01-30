@@ -102,7 +102,7 @@ const Profile = () => {
         {/* User Info */}
         <div className="flex items-center gap-4 p-4 bg-card rounded-2xl">
           <img 
-            src={userProfile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid}`}
+            src={userProfile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.id}`}
             alt={userProfile?.username}
             className="w-16 h-16 rounded-full bg-muted"
           />
