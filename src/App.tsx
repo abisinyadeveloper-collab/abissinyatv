@@ -20,8 +20,10 @@ import ResetPassword from "./pages/ResetPassword";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000,
+      staleTime: 2 * 60 * 1000, // 2 minutes - faster refresh
+      gcTime: 10 * 60 * 1000, // 10 minutes cache
       retry: 1,
+      refetchOnWindowFocus: false, // Prevent unnecessary refetches
     },
   },
 });

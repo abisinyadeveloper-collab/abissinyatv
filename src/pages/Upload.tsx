@@ -76,13 +76,11 @@ const Upload = () => {
   
   const timeoutRef = useRef<NodeJS.Timeout>();
 
-  // Auto-generate thumbnail from video URL
-  const generateThumbnail = (url: string): string => {
-    const youtubeMatch = url.match(/(?:youtube\.com\/(?:embed\/|watch\?v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-    if (youtubeMatch) {
-      return `https://img.youtube.com/vi/${youtubeMatch[1]}/maxresdefault.jpg`;
-    }
-    return 'https://images.unsplash.com/photo-1611162616305-c69b3fa7fbe0?w=800';
+  // Auto-generate thumbnail from video URL using the thumbnail utility
+  const generateThumbnail = async (url: string): Promise<string> => {
+    const { extractThumbnail } = await import('@/lib/thumbnails');
+    const result = extractThumbnail(url);
+    return result.url;
   };
 
   // Auto-detect category from title
@@ -152,7 +150,7 @@ const Upload = () => {
     }, 500);
 
     try {
-      const thumbnailUrl = generateThumbnail(videoSource);
+      const thumbnailUrl = await generateThumbnail(videoSource);
       const category = detectCategory(title);
       const finalVideoUrl = processVideoUrl(videoSource, videoType);
 

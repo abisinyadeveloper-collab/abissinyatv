@@ -1,20 +1,30 @@
+import { memo, useCallback } from 'react';
 import { Play, Eye } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Video } from '@/types';
 import { formatViews, formatTimeAgo } from '@/lib/format';
 import LazyImage from './LazyImage';
+import { usePrefetchVideo } from '@/hooks/useVideoData';
 
 interface VideoCardProps {
   video: Video;
   variant?: 'default' | 'compact' | 'horizontal';
 }
 
-const VideoCard = ({ video, variant = 'default' }: VideoCardProps) => {
+const VideoCard = memo(({ video, variant = 'default' }: VideoCardProps) => {
+  const prefetchVideo = usePrefetchVideo();
+
+  // Prefetch video data on hover for instant navigation
+  const handleMouseEnter = useCallback(() => {
+    prefetchVideo(video.video_id);
+  }, [prefetchVideo, video.video_id]);
+
   if (variant === 'horizontal') {
     return (
       <Link 
         to={`/watch/${video.video_id}`}
         className="flex gap-3 p-2 rounded-xl hover:bg-secondary/50 transition-colors"
+        onMouseEnter={handleMouseEnter}
       >
         <div className="relative w-40 aspect-video rounded-lg overflow-hidden flex-shrink-0 bg-muted">
           <LazyImage 
@@ -47,6 +57,7 @@ const VideoCard = ({ video, variant = 'default' }: VideoCardProps) => {
       <Link 
         to={`/watch/${video.video_id}`}
         className="video-card group"
+        onMouseEnter={handleMouseEnter}
       >
         <div className="relative aspect-video bg-muted">
           <LazyImage 
@@ -72,6 +83,7 @@ const VideoCard = ({ video, variant = 'default' }: VideoCardProps) => {
     <Link 
       to={`/watch/${video.video_id}`}
       className="video-card group block"
+      onMouseEnter={handleMouseEnter}
     >
       <div className="relative aspect-video bg-muted">
         <LazyImage 
@@ -108,6 +120,8 @@ const VideoCard = ({ video, variant = 'default' }: VideoCardProps) => {
       </div>
     </Link>
   );
-};
+});
+
+VideoCard.displayName = 'VideoCard';
 
 export default VideoCard;
