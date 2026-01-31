@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { 
   ThumbsUp, ThumbsDown, Share2, Download, Bookmark, 
@@ -11,6 +11,7 @@ import VideoCard from '@/components/VideoCard';
 import { Skeleton } from '@/components/Skeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSavedVideos } from '@/hooks/useSavedVideos';
+import { useVideo, useRelatedVideos } from '@/hooks/useVideoData';
 import { formatViews, formatTimeAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -20,99 +21,42 @@ const Watch = () => {
   const { user, userProfile, isGuest, setShowAuthModal, setAuthAction } = useAuth();
   const { saveVideo, removeVideo, isVideoSaved } = useSavedVideos();
   
-  const [video, setVideo] = useState<Video | null>(null);
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [relatedVideos, setRelatedVideos] = useState<Video[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Use React Query for optimized data fetching with caching
+  const { data: video, isLoading: videoLoading, error: videoError } = useVideo(videoId);
+  const { data: relatedVideos = [] } = useRelatedVideos(videoId, video?.category);
+  
+  const [comments, setComments] = useState<Comment[]>(getDemoComments());
   const [liked, setLiked] = useState(false);
+  const [localLikes, setLocalLikes] = useState<number | null>(null);
   const [following, setFollowing] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [viewCounted, setViewCounted] = useState(false);
 
   const isSaved = video ? isVideoSaved(video.video_id) : false;
+  
+  // Memoized likes count (local override or from video)
+  const displayLikes = useMemo(() => {
+    return localLikes ?? video?.likes ?? 0;
+  }, [localLikes, video?.likes]);
 
+  // Increment view count once per video load
   useEffect(() => {
-    const fetchVideo = async () => {
-      if (!videoId) return;
-      
-      setLoading(true);
-      try {
-        // Fetch video from Supabase
-        const { data: videoData, error } = await supabase
-          .from('videos')
-          .select('*')
-          .eq('id', videoId)
-          .single();
+    if (videoId && video && !viewCounted) {
+      supabase.rpc('increment_video_views', { video_id: videoId });
+      setViewCounted(true);
+    }
+  }, [videoId, video, viewCounted]);
 
-        if (error || !videoData) {
-          // Demo video fallback
-          setVideo(getDemoVideo(videoId));
-          setComments(getDemoComments());
-          setRelatedVideos(getDemoRelatedVideos());
-        } else {
-          const mappedVideo: Video = {
-            video_id: videoData.id,
-            title: videoData.title,
-            description: '',
-            thumbnail_url: videoData.thumbnail_url || '',
-            video_url: videoData.url || videoData.embed_code || '',
-            source_type: videoData.type as 'link' | 'embed',
-            category: videoData.category as 'music' | 'sport' | 'live' | 'movies',
-            views: videoData.views || 0,
-            likes: videoData.likes || 0,
-            uploader_id: videoData.user_id,
-            created_at: new Date(videoData.created_at)
-          };
-          setVideo(mappedVideo);
-          
-          // Increment view count atomically
-          await supabase.rpc('increment_video_views', { video_id: videoId });
-
-          // Fetch related videos
-          const { data: related } = await supabase
-            .from('videos')
-            .select('*')
-            .eq('category', videoData.category)
-            .neq('id', videoId)
-            .order('views', { ascending: false })
-            .limit(5);
-
-          if (related) {
-            setRelatedVideos(related.map(v => ({
-              video_id: v.id,
-              title: v.title,
-              description: '',
-              thumbnail_url: v.thumbnail_url || '',
-              video_url: v.url || v.embed_code || '',
-              source_type: v.type as 'link' | 'embed',
-              category: v.category as 'music' | 'sport' | 'live' | 'movies',
-              views: v.views || 0,
-              likes: v.likes || 0,
-              uploader_id: v.user_id,
-              created_at: new Date(v.created_at)
-            })));
-          } else {
-            setRelatedVideos(getDemoRelatedVideos());
-          }
-        }
-        
-        // Comments are not implemented in this version
-        setComments(getDemoComments());
-      } catch (error) {
-        console.error('Error fetching video:', error);
-        setVideo(getDemoVideo(videoId!));
-        setComments(getDemoComments());
-        setRelatedVideos(getDemoRelatedVideos());
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchVideo();
+  // Reset view count flag when video changes
+  useEffect(() => {
+    setViewCounted(false);
+    setLocalLikes(null);
+    setLiked(false);
   }, [videoId]);
 
-  const handleLike = async () => {
+  const handleLike = useCallback(async () => {
     if (isGuest) {
       setAuthAction('like this video');
       setShowAuthModal(true);
@@ -122,14 +66,14 @@ const Watch = () => {
     // Optimistic update
     const wasLiked = liked;
     setLiked(!wasLiked);
-    if (video) {
-      setVideo({ ...video, likes: video.likes + (wasLiked ? -1 : 1) });
-    }
+    setLocalLikes(prev => {
+      const current = prev ?? video?.likes ?? 0;
+      return current + (wasLiked ? -1 : 1);
+    });
     
     // Update in database
-    if (videoId && video) {
+    if (videoId) {
       try {
-        // Use atomic increment/decrement for likes
         if (wasLiked) {
           await supabase.rpc('decrement_video_likes', { video_id: videoId });
         } else {
@@ -139,13 +83,11 @@ const Watch = () => {
       } catch (error) {
         // Revert on error
         setLiked(wasLiked);
-        if (video) {
-          setVideo({ ...video, likes: video.likes });
-        }
+        setLocalLikes(video?.likes ?? 0);
         toast.error('Failed to update like');
       }
     }
-  };
+  }, [isGuest, liked, videoId, video?.likes, setAuthAction, setShowAuthModal]);
 
   const handleShare = async () => {
     if (navigator.share) {
@@ -252,7 +194,7 @@ const Watch = () => {
     toast.success('Comment posted!');
   };
 
-  if (loading) {
+  if (videoLoading) {
     return (
       <div className="min-h-screen pb-20">
         <Skeleton className="w-full aspect-video" />
@@ -269,7 +211,7 @@ const Watch = () => {
     );
   }
 
-  if (!video) {
+  if (videoError || !video) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p className="text-muted-foreground">Video not found</p>
@@ -310,7 +252,7 @@ const Watch = () => {
                 )}
               >
                 <ThumbsUp className={cn("w-5 h-5", liked && "fill-current")} />
-                <span className="text-sm font-medium">{formatViews(video.likes)}</span>
+                <span className="text-sm font-medium">{formatViews(displayLikes)}</span>
               </button>
               
               <button className="flex items-center gap-2 px-4 py-2 bg-secondary rounded-full hover:bg-accent transition-colors">

@@ -59,6 +59,9 @@
     scroll-behavior: smooth;
     -webkit-tap-highlight-color: transparent;
     overscroll-behavior: none;
+    /* GPU acceleration */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   body {
@@ -67,6 +70,8 @@
     overflow-x: hidden;
     overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
+    /* Instant paint */
+    contain: layout style paint;
   }
 
   /* Disable pull-to-refresh */
@@ -120,12 +125,18 @@
   }
 
   .video-card {
-    @apply bg-card rounded-xl overflow-hidden transition-all duration-300;
+    @apply bg-card rounded-xl overflow-hidden transition-transform duration-200;
+    will-change: transform;
+    contain: layout style paint;
   }
 
   .video-card:hover {
     @apply scale-[1.02];
     box-shadow: 0 8px 32px hsl(0 0% 0% / 0.5);
+  }
+
+  .video-card:active {
+    @apply scale-[0.98];
   }
 
   .skeleton-pulse {
