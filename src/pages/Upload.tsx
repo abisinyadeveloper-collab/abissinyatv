@@ -283,10 +283,15 @@ const Upload = () => {
             )}
             <p className="text-xs text-muted-foreground mt-2">
               {videoType === 'link' 
-                ? 'Supports MP4, M3U8 (HLS), and direct video URLs'
-                : 'Supports YouTube, Odysee, Vimeo, and other embed URLs'
+                ? 'Supports MP4, M3U8 (HLS), and direct video URLs. Note: Direct links are user-submitted and not verified.'
+                : 'Supports YouTube, Odysee, and Vimeo embed URLs only.'
               }
             </p>
+            {videoType === 'link' && (
+              <p className="text-xs text-destructive/80 mt-1">
+                ⚠️ Direct links are not verified. Only link to trusted video sources.
+              </p>
+            )}
           </div>
 
           {/* Submit */}
