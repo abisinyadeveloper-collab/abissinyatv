@@ -236,7 +236,7 @@ const Upload = () => {
               value={title}
               onChange={(e) => {
                 setTitle(e.target.value);
-                if (errors.title) setErrors(prev => ({ ...prev, title: false }));
+                if (errors.title) setErrors(prev => ({ ...prev, title: undefined }));
               }}
               placeholder="Enter video title"
               className={cn(
@@ -266,7 +266,7 @@ const Upload = () => {
                 value={videoSource}
                 onChange={(e) => {
                   setVideoSource(e.target.value);
-                  if (errors.videoSource) setErrors(prev => ({ ...prev, videoSource: false }));
+                  if (errors.videoSource) setErrors(prev => ({ ...prev, videoSource: undefined }));
                 }}
                 placeholder={videoType === 'link' 
                   ? "https://example.com/video.mp4" 
