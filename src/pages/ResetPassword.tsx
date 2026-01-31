@@ -16,13 +16,12 @@ const ResetPassword = () => {
 
   useEffect(() => {
     // Check if we have an access token in the URL (from email link)
+    // Supabase automatically exchanges the hash token for a session
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    const accessToken = hashParams.get('access_token');
     const type = hashParams.get('type');
 
-    if (type === 'recovery' && accessToken) {
-      // Session will be set automatically by Supabase
-      console.log('Password recovery flow detected');
+    if (type === 'recovery') {
+      // Password recovery flow - token will be exchanged for session automatically
     }
   }, []);
 
