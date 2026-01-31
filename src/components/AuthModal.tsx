@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, forwardRef } from 'react';
 import { X, Mail, Eye, EyeOff, Loader2, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 
 type AuthMode = 'login' | 'signup' | 'forgot';
 
-const AuthModal = () => {
+const AuthModal = forwardRef<HTMLDivElement>((_, ref) => {
   const { showAuthModal, setShowAuthModal, authAction, signIn, signUp } = useAuth();
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
@@ -64,7 +64,7 @@ const AuthModal = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
+    <div ref={ref} className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
       <div className="w-full max-w-md bg-card rounded-t-3xl sm:rounded-2xl p-6 animate-slide-up max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -232,6 +232,8 @@ const AuthModal = () => {
       </div>
     </div>
   );
-};
+});
+
+AuthModal.displayName = 'AuthModal';
 
 export default AuthModal;

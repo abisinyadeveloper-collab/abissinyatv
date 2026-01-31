@@ -1,3 +1,4 @@
+import { forwardRef } from 'react';
 import { Home, Compass, Upload, Bell, User } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -10,11 +11,11 @@ const navItems = [
   { icon: User, label: 'Profile', path: '/profile' },
 ];
 
-const BottomNav = () => {
+const BottomNav = forwardRef<HTMLElement>((_, ref) => {
   const location = useLocation();
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 glass-nav pb-[env(safe-area-inset-bottom)]">
+    <nav ref={ref} className="fixed bottom-0 left-0 right-0 z-50 glass-nav pb-[env(safe-area-inset-bottom)]">
       <div className="flex items-center justify-around h-16 max-w-lg mx-auto px-2">
         {navItems.map(({ icon: Icon, label, path }) => {
           const isActive = location.pathname === path;
@@ -47,6 +48,8 @@ const BottomNav = () => {
       </div>
     </nav>
   );
-};
+});
+
+BottomNav.displayName = 'BottomNav';
 
 export default BottomNav;
