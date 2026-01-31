@@ -8,6 +8,62 @@ import { toast } from 'sonner';
 
 type VideoType = 'link' | 'embed';
 
+// Allowed domains for embed videos
+const ALLOWED_EMBED_DOMAINS = [
+  'youtube.com',
+  'www.youtube.com',
+  'youtu.be',
+  'vimeo.com',
+  'www.vimeo.com',
+  'odysee.com',
+  'www.odysee.com'
+];
+
+// Validate URL format and domain restrictions
+const validateVideoUrl = (url: string, type: VideoType): { valid: boolean; error?: string } => {
+  // Trim whitespace
+  const trimmedUrl = url.trim();
+  
+  // Check for empty URL
+  if (!trimmedUrl) {
+    return { valid: false, error: 'URL is required' };
+  }
+  
+  // Check URL length (prevent DoS with extremely long URLs)
+  if (trimmedUrl.length > 2000) {
+    return { valid: false, error: 'URL is too long (max 2000 characters)' };
+  }
+  
+  // Validate URL format
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmedUrl);
+  } catch {
+    return { valid: false, error: 'Invalid URL format. Please enter a valid URL starting with http:// or https://' };
+  }
+  
+  // Only allow http and https protocols
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return { valid: false, error: 'Only HTTP and HTTPS URLs are allowed' };
+  }
+  
+  // For embed type, enforce domain whitelist
+  if (type === 'embed') {
+    const isAllowedDomain = ALLOWED_EMBED_DOMAINS.some(domain => 
+      parsed.hostname === domain || parsed.hostname.endsWith('.' + domain)
+    );
+    
+    if (!isAllowedDomain) {
+      return { 
+        valid: false, 
+        error: 'Embed videos must be from YouTube, Vimeo, or Odysee. Please use a supported platform.' 
+      };
+    }
+  }
+  
+  return { valid: true };
+};
+
 const Upload = () => {
   const { user, userProfile, isGuest, setShowAuthModal, setAuthAction } = useAuth();
   const navigate = useNavigate();
@@ -16,7 +72,7 @@ const Upload = () => {
   const [videoSource, setVideoSource] = useState('');
   const [videoType, setVideoType] = useState<VideoType>('link');
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<{ title?: boolean; videoSource?: boolean }>({});
+  const [errors, setErrors] = useState<{ title?: string; videoSource?: string }>({});
   
   const timeoutRef = useRef<NodeJS.Timeout>();
 
@@ -59,9 +115,21 @@ const Upload = () => {
     e.preventDefault();
     
     // Validate fields
-    const newErrors: { title?: boolean; videoSource?: boolean } = {};
-    if (!title.trim()) newErrors.title = true;
-    if (!videoSource.trim()) newErrors.videoSource = true;
+    const newErrors: { title?: string; videoSource?: string } = {};
+    
+    // Validate title
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      newErrors.title = 'Title is required';
+    } else if (trimmedTitle.length > 200) {
+      newErrors.title = 'Title must be less than 200 characters';
+    }
+    
+    // Validate video URL
+    const urlValidation = validateVideoUrl(videoSource, videoType);
+    if (!urlValidation.valid) {
+      newErrors.videoSource = urlValidation.error;
+    }
     
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -178,7 +246,7 @@ const Upload = () => {
               autoFocus
             />
             {errors.title && (
-              <p className="text-destructive text-sm mt-1">Title is required</p>
+              <p className="text-destructive text-sm mt-1">{errors.title}</p>
             )}
           </div>
 
@@ -211,7 +279,7 @@ const Upload = () => {
               />
             </div>
             {errors.videoSource && (
-              <p className="text-destructive text-sm mt-1">Video source is required</p>
+              <p className="text-destructive text-sm mt-1">{errors.videoSource}</p>
             )}
             <p className="text-xs text-muted-foreground mt-2">
               {videoType === 'link' 
