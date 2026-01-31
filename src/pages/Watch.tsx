@@ -66,11 +66,8 @@ const Watch = () => {
           };
           setVideo(mappedVideo);
           
-          // Increment view count
-          await supabase
-            .from('videos')
-            .update({ views: (videoData.views || 0) + 1 })
-            .eq('id', videoId);
+          // Increment view count atomically
+          await supabase.rpc('increment_video_views', { video_id: videoId });
 
           // Fetch related videos
           const { data: related } = await supabase
@@ -132,10 +129,12 @@ const Watch = () => {
     // Update in database
     if (videoId && video) {
       try {
-        await supabase
-          .from('videos')
-          .update({ likes: video.likes + (wasLiked ? -1 : 1) })
-          .eq('id', videoId);
+        // Use atomic increment/decrement for likes
+        if (wasLiked) {
+          await supabase.rpc('decrement_video_likes', { video_id: videoId });
+        } else {
+          await supabase.rpc('increment_video_likes', { video_id: videoId });
+        }
         toast.success(wasLiked ? 'Like removed' : 'Added to liked videos');
       } catch (error) {
         // Revert on error
