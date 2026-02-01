@@ -3,8 +3,10 @@ import { Upload as UploadIcon, Link as LinkIcon, Code, Loader2 } from 'lucide-re
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { extractThumbnail } from '@/lib/thumbnails';
 
 type VideoType = 'link' | 'embed';
 
@@ -21,20 +23,16 @@ const ALLOWED_EMBED_DOMAINS = [
 
 // Validate URL format and domain restrictions
 const validateVideoUrl = (url: string, type: VideoType): { valid: boolean; error?: string } => {
-  // Trim whitespace
   const trimmedUrl = url.trim();
   
-  // Check for empty URL
   if (!trimmedUrl) {
     return { valid: false, error: 'URL is required' };
   }
   
-  // Check URL length (prevent DoS with extremely long URLs)
   if (trimmedUrl.length > 2000) {
     return { valid: false, error: 'URL is too long (max 2000 characters)' };
   }
   
-  // Validate URL format
   let parsed: URL;
   try {
     parsed = new URL(trimmedUrl);
@@ -42,12 +40,10 @@ const validateVideoUrl = (url: string, type: VideoType): { valid: boolean; error
     return { valid: false, error: 'Invalid URL format. Please enter a valid URL starting with http:// or https://' };
   }
   
-  // Only allow http and https protocols
   if (!['http:', 'https:'].includes(parsed.protocol)) {
     return { valid: false, error: 'Only HTTP and HTTPS URLs are allowed' };
   }
   
-  // For embed type, enforce domain whitelist
   if (type === 'embed') {
     const isAllowedDomain = ALLOWED_EMBED_DOMAINS.some(domain => 
       parsed.hostname === domain || parsed.hostname.endsWith('.' + domain)
@@ -64,9 +60,36 @@ const validateVideoUrl = (url: string, type: VideoType): { valid: boolean; error
   return { valid: true };
 };
 
+// Auto-detect category from title
+const detectCategory = (title: string): string => {
+  const lowerTitle = title.toLowerCase();
+  if (lowerTitle.includes('football') || lowerTitle.includes('sport') || lowerTitle.includes('goal')) {
+    return 'sport';
+  }
+  if (lowerTitle.includes('live') || lowerTitle.includes('stream')) {
+    return 'live';
+  }
+  if (lowerTitle.includes('movie') || lowerTitle.includes('film') || lowerTitle.includes('trailer')) {
+    return 'movies';
+  }
+  return 'music';
+};
+
+// Convert YouTube watch URLs to embed URLs
+const processVideoUrl = (url: string, type: VideoType): string => {
+  if (type === 'embed') {
+    const youtubeMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    if (youtubeMatch) {
+      return `https://www.youtube.com/embed/${youtubeMatch[1]}`;
+    }
+  }
+  return url;
+};
+
 const Upload = () => {
-  const { user, userProfile, isGuest, setShowAuthModal, setAuthAction } = useAuth();
+  const { user, isGuest, setShowAuthModal, setAuthAction } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   
   const [title, setTitle] = useState('');
   const [videoSource, setVideoSource] = useState('');
@@ -76,46 +99,12 @@ const Upload = () => {
   
   const timeoutRef = useRef<NodeJS.Timeout>();
 
-  // Auto-generate thumbnail from video URL using the thumbnail utility
-  const generateThumbnail = async (url: string): Promise<string> => {
-    const { extractThumbnail } = await import('@/lib/thumbnails');
-    const result = extractThumbnail(url);
-    return result.url;
-  };
-
-  // Auto-detect category from title
-  const detectCategory = (title: string): string => {
-    const lowerTitle = title.toLowerCase();
-    if (lowerTitle.includes('football') || lowerTitle.includes('sport') || lowerTitle.includes('goal')) {
-      return 'sport';
-    }
-    if (lowerTitle.includes('live') || lowerTitle.includes('stream')) {
-      return 'live';
-    }
-    if (lowerTitle.includes('movie') || lowerTitle.includes('film') || lowerTitle.includes('trailer')) {
-      return 'movies';
-    }
-    return 'music';
-  };
-
-  // Convert YouTube watch URLs to embed URLs
-  const processVideoUrl = (url: string, type: VideoType): string => {
-    if (type === 'embed') {
-      const youtubeMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-      if (youtubeMatch) {
-        return `https://www.youtube.com/embed/${youtubeMatch[1]}`;
-      }
-    }
-    return url;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Validate fields
     const newErrors: { title?: string; videoSource?: string } = {};
     
-    // Validate title
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
       newErrors.title = 'Title is required';
@@ -123,7 +112,6 @@ const Upload = () => {
       newErrors.title = 'Title must be less than 200 characters';
     }
     
-    // Validate video URL
     const urlValidation = validateVideoUrl(videoSource, videoType);
     if (!urlValidation.valid) {
       newErrors.videoSource = urlValidation.error;
@@ -143,23 +131,18 @@ const Upload = () => {
     setLoading(true);
     setErrors({});
 
-    // Set a max loading time of 0.5 seconds before redirect
-    timeoutRef.current = setTimeout(() => {
-      navigate('/');
-      toast.success('Video uploaded!');
-    }, 500);
-
     try {
-      const thumbnailUrl = await generateThumbnail(videoSource);
+      // Generate thumbnail from URL
+      const thumbnailResult = extractThumbnail(videoSource);
       const category = detectCategory(title);
       const finalVideoUrl = processVideoUrl(videoSource, videoType);
 
       const { error } = await supabase.from('videos').insert({
         user_id: user?.id,
-        title: title.trim(),
+        title: trimmedTitle,
         url: videoType === 'link' ? finalVideoUrl : null,
         embed_code: videoType === 'embed' ? finalVideoUrl : null,
-        thumbnail_url: thumbnailUrl,
+        thumbnail_url: thumbnailResult.url,
         type: videoType,
         category,
         views: 0,
@@ -168,12 +151,11 @@ const Upload = () => {
 
       if (error) throw error;
 
-      // Clear timeout and redirect immediately if upload finished fast
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      navigate('/');
+      // Invalidate video queries to refresh home page instantly
+      await queryClient.invalidateQueries({ queryKey: ['videos'] });
+      
       toast.success('Video uploaded successfully!');
+      navigate('/');
     } catch (err: any) {
       console.error('Upload error:', err);
       if (timeoutRef.current) {
