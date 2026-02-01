@@ -1,12 +1,12 @@
-import { useState, useRef } from 'react';
-import { Upload as UploadIcon, Link as LinkIcon, Code, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Upload as UploadIcon, Link as LinkIcon, Code, Loader2, Image as ImageIcon } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { extractThumbnail } from '@/lib/thumbnails';
+import { extractThumbnail, hasThumbnailSupport } from '@/lib/thumbnails';
 
 type VideoType = 'link' | 'embed';
 
@@ -60,6 +60,22 @@ const validateVideoUrl = (url: string, type: VideoType): { valid: boolean; error
   return { valid: true };
 };
 
+// Validate thumbnail URL
+const validateThumbnailUrl = (url: string): { valid: boolean; error?: string } => {
+  if (!url.trim()) return { valid: true }; // Optional field
+  
+  try {
+    const parsed = new URL(url.trim());
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return { valid: false, error: 'Only HTTP/HTTPS URLs allowed' };
+    }
+  } catch {
+    return { valid: false, error: 'Invalid thumbnail URL format' };
+  }
+  
+  return { valid: true };
+};
+
 // Auto-detect category from title
 const detectCategory = (title: string): string => {
   const lowerTitle = title.toLowerCase();
@@ -93,17 +109,27 @@ const Upload = () => {
   
   const [title, setTitle] = useState('');
   const [videoSource, setVideoSource] = useState('');
+  const [customThumbnail, setCustomThumbnail] = useState('');
+  const [autoThumbnail, setAutoThumbnail] = useState('');
   const [videoType, setVideoType] = useState<VideoType>('link');
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<{ title?: string; videoSource?: string }>({});
-  
-  const timeoutRef = useRef<NodeJS.Timeout>();
+  const [errors, setErrors] = useState<{ title?: string; videoSource?: string; thumbnail?: string }>({});
+
+  // Auto-extract thumbnail when video source changes
+  useEffect(() => {
+    if (videoSource.trim() && hasThumbnailSupport(videoSource)) {
+      const result = extractThumbnail(videoSource);
+      setAutoThumbnail(result.url);
+    } else {
+      setAutoThumbnail('');
+    }
+  }, [videoSource]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Validate fields
-    const newErrors: { title?: string; videoSource?: string } = {};
+    const newErrors: { title?: string; videoSource?: string; thumbnail?: string } = {};
     
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
@@ -115,6 +141,11 @@ const Upload = () => {
     const urlValidation = validateVideoUrl(videoSource, videoType);
     if (!urlValidation.valid) {
       newErrors.videoSource = urlValidation.error;
+    }
+    
+    const thumbnailValidation = validateThumbnailUrl(customThumbnail);
+    if (!thumbnailValidation.valid) {
+      newErrors.thumbnail = thumbnailValidation.error;
     }
     
     if (Object.keys(newErrors).length > 0) {
@@ -132,8 +163,8 @@ const Upload = () => {
     setErrors({});
 
     try {
-      // Generate thumbnail from URL
-      const thumbnailResult = extractThumbnail(videoSource);
+      // Use custom thumbnail if provided, otherwise use auto-extracted or default
+      const finalThumbnail = customThumbnail.trim() || autoThumbnail || extractThumbnail(videoSource).url;
       const category = detectCategory(title);
       const finalVideoUrl = processVideoUrl(videoSource, videoType);
 
@@ -142,7 +173,7 @@ const Upload = () => {
         title: trimmedTitle,
         url: videoType === 'link' ? finalVideoUrl : null,
         embed_code: videoType === 'embed' ? finalVideoUrl : null,
-        thumbnail_url: thumbnailResult.url,
+        thumbnail_url: finalThumbnail,
         type: videoType,
         category,
         views: 0,
@@ -158,13 +189,13 @@ const Upload = () => {
       navigate('/');
     } catch (err: any) {
       console.error('Upload error:', err);
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
       toast.error(err.message || 'Failed to upload video');
       setLoading(false);
     }
   };
+
+  // Determine which thumbnail to show in preview
+  const previewThumbnail = customThumbnail.trim() || autoThumbnail;
 
   return (
     <div className="min-h-screen pb-20">
@@ -263,16 +294,62 @@ const Upload = () => {
             )}
             <p className="text-xs text-muted-foreground mt-2">
               {videoType === 'link' 
-                ? 'Supports MP4, M3U8 (HLS), and direct video URLs. Note: Direct links are user-submitted and not verified.'
+                ? 'Supports MP4, M3U8 (HLS), and direct video URLs.'
                 : 'Supports YouTube, Odysee, and Vimeo embed URLs only.'
               }
             </p>
-            {videoType === 'link' && (
-              <p className="text-xs text-destructive/80 mt-1">
-                ⚠️ Direct links are not verified. Only link to trusted video sources.
-              </p>
-            )}
           </div>
+
+          {/* Custom Thumbnail URL */}
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Custom Thumbnail URL <span className="text-muted-foreground">(optional)</span>
+            </label>
+            <div className="relative">
+              <ImageIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <input
+                type="text"
+                value={customThumbnail}
+                onChange={(e) => {
+                  setCustomThumbnail(e.target.value);
+                  if (errors.thumbnail) setErrors(prev => ({ ...prev, thumbnail: undefined }));
+                }}
+                placeholder="https://example.com/thumbnail.jpg"
+                className={cn(
+                  "w-full bg-secondary pl-12 pr-4 py-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all",
+                  errors.thumbnail && "ring-2 ring-destructive"
+                )}
+              />
+            </div>
+            {errors.thumbnail && (
+              <p className="text-destructive text-sm mt-1">{errors.thumbnail}</p>
+            )}
+            <p className="text-xs text-muted-foreground mt-2">
+              Leave empty to auto-extract from YouTube/Vimeo/Odysee URLs
+            </p>
+          </div>
+
+          {/* Thumbnail Preview */}
+          {previewThumbnail && (
+            <div className="bg-secondary/50 rounded-xl p-4">
+              <p className="text-sm font-medium mb-3">Thumbnail Preview</p>
+              <div className="aspect-video rounded-lg overflow-hidden bg-muted">
+                <img 
+                  src={previewThumbnail} 
+                  alt="Thumbnail preview"
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1611162616305-c69b3fa7fbe0?w=800&q=80';
+                  }}
+                />
+              </div>
+              {autoThumbnail && !customThumbnail.trim() && (
+                <p className="text-xs text-muted-foreground mt-2 text-center">
+                  ✓ Auto-extracted from video URL
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Submit */}
           <button
@@ -311,7 +388,11 @@ const Upload = () => {
             </li>
             <li className="flex items-start gap-2">
               <span className="text-primary">•</span>
-              <span>Include keywords like "football" or "live" for automatic categorization.</span>
+              <span>Thumbnails are auto-extracted for YouTube, Vimeo & Odysee videos.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-primary">•</span>
+              <span>Add a custom thumbnail URL to override the auto-extracted one.</span>
             </li>
           </ul>
         </div>
