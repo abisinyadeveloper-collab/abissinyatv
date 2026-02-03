@@ -198,7 +198,7 @@ const Upload = () => {
   const previewThumbnail = customThumbnail.trim() || autoThumbnail;
 
   return (
-    <div className="min-h-screen pb-20">
+    <div className="min-h-screen pb-24">
       {/* Header */}
       <header className="sticky top-0 z-40 glass-nav px-4 py-4">
         <div className="max-w-2xl mx-auto">
