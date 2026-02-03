@@ -99,7 +99,7 @@ const Profile = () => {
         <button
           onClick={handleSignOut}
           disabled={signingOut}
-          className="w-full flex items-center justify-center gap-3 px-4 py-4 bg-destructive/10 text-destructive rounded-2xl hover:bg-destructive/20 transition-colors font-medium disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-3 px-4 py-4 bg-destructive/10 text-destructive rounded-2xl hover:bg-destructive/20 transition-colors font-medium disabled:opacity-50 active:scale-[0.98]"
         >
           <LogOut className="w-5 h-5" />
           {signingOut ? 'Signing out...' : 'Sign Out'}

@@ -75,7 +75,7 @@ const Home = () => {
   }, []);
 
   return (
-    <div className="min-h-screen pb-20">
+    <div className="min-h-screen pb-24">
       {/* Header */}
       <header className="sticky top-0 z-40 glass-nav px-4 py-3">
         <div className="flex items-center justify-between max-w-6xl mx-auto">
@@ -88,13 +88,13 @@ const Home = () => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search videos..."
-                  className="w-full bg-secondary pl-10 pr-4 py-2 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  className="w-full bg-secondary pl-10 pr-4 py-2.5 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                   autoFocus
                 />
               </div>
               <button 
                 onClick={handleSearchClose}
-                className="p-2 hover:bg-secondary rounded-full transition-colors"
+                className="p-2.5 hover:bg-secondary rounded-full transition-colors active:scale-95"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -102,16 +102,16 @@ const Home = () => {
           ) : (
             <>
               <h1 className="text-xl font-bold text-primary">ABISINYA</h1>
-              <div className="flex items-center gap-2">
-                <button className="p-2 hover:bg-secondary rounded-full transition-colors">
+              <div className="flex items-center gap-1">
+                <button className="p-2.5 hover:bg-secondary rounded-full transition-colors active:scale-95">
                   <Cast className="w-5 h-5" />
                 </button>
-                <button className="p-2 hover:bg-secondary rounded-full transition-colors">
+                <button className="p-2.5 hover:bg-secondary rounded-full transition-colors active:scale-95">
                   <Bell className="w-5 h-5" />
                 </button>
                 <button 
                   onClick={() => setShowSearch(true)}
-                  className="p-2 hover:bg-secondary rounded-full transition-colors"
+                  className="p-2.5 hover:bg-secondary rounded-full transition-colors active:scale-95"
                 >
                   <Search className="w-5 h-5" />
                 </button>
@@ -129,7 +129,7 @@ const Home = () => {
               key={category}
               onClick={() => handleCategoryChange(category)}
               className={cn(
-                "px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all",
+                "px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all active:scale-95",
                 activeCategory === category
                   ? "bg-foreground text-background"
                   : "bg-secondary text-foreground hover:bg-accent"
