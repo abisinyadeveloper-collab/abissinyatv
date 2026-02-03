@@ -105,7 +105,7 @@ const VideoCard = memo(({ video, variant = 'default' }: VideoCardProps) => {
           <LazyImage 
             src={video.uploader_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${video.uploader_id}`}
             alt={video.uploader_name || 'Uploader'}
-            className="w-9 h-9 rounded-full flex-shrink-0"
+            className="w-9 h-9 rounded-full flex-shrink-0 bg-muted"
           />
           <div className="flex-1 min-w-0">
             <h3 className="font-medium text-sm line-clamp-2 leading-tight">{video.title}</h3>

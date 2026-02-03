@@ -1,4 +1,4 @@
-import { forwardRef } from 'react';
+import { memo } from 'react';
 import { Home, Compass, Upload, Bell, User } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -11,11 +11,11 @@ const navItems = [
   { icon: User, label: 'Profile', path: '/profile' },
 ];
 
-const BottomNav = forwardRef<HTMLElement>((_, ref) => {
+const BottomNav = memo(() => {
   const location = useLocation();
 
   return (
-    <nav ref={ref} className="fixed bottom-0 left-0 right-0 z-50 glass-nav pb-[env(safe-area-inset-bottom)]">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 glass-nav pb-[env(safe-area-inset-bottom)]">
       <div className="flex items-center justify-around h-16 max-w-lg mx-auto px-2">
         {navItems.map(({ icon: Icon, label, path }) => {
           const isActive = location.pathname === path;
@@ -26,7 +26,7 @@ const BottomNav = forwardRef<HTMLElement>((_, ref) => {
               key={path}
               to={path}
               className={cn(
-                "flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-xl transition-all duration-200",
+                "flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 active:scale-95",
                 isActive && !isUpload && "text-primary",
                 !isActive && !isUpload && "text-muted-foreground hover:text-foreground",
                 isUpload && "relative"
