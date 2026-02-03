@@ -1,17 +1,12 @@
-import { forwardRef } from 'react';
 import { cn } from '@/lib/utils';
 
 interface SkeletonProps extends React.HTMLAttributes<HTMLDivElement> {
   className?: string;
 }
 
-export const Skeleton = forwardRef<HTMLDivElement, SkeletonProps>(
-  ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("skeleton-pulse", className)} {...props} />
-  )
+export const Skeleton = ({ className, ...props }: SkeletonProps) => (
+  <div className={cn("skeleton-pulse", className)} {...props} />
 );
-
-Skeleton.displayName = 'Skeleton';
 
 export const VideoCardSkeleton = () => (
   <div className="video-card">
